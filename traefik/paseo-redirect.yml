@@ -1,0 +1,9 @@
+http:
+  routers:
+    paseo-deep-link:
+      rule: "Host(`go.example.com`) && PathRegexp(`^/paseo/h/[^/]+/agent/[^/]+/?$`)"
+      entryPoints:
+        - websecure
+      service: paseo-link-handler@docker
+      tls:
+        certResolver: letsencrypt

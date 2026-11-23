@@ -1,0 +1,114 @@
+services:
+  paseo-link-handler:
+    image: nginx:alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        cat >/usr/share/nginx/html/index.html <<'HTML'
+        <!doctype html>
+        <html lang="ru">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Открываем Paseo</title>
+          <style>
+            :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+            body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f6f8; color: #18212b; }
+            main { box-sizing: border-box; width: min(440px, calc(100% - 32px)); padding: 32px; border-radius: 16px; background: white; box-shadow: 0 12px 36px #15243818; text-align: center; }
+            h1 { margin: 0 0 12px; font-size: 1.4rem; }
+            p { color: #526170; }
+            a { display: inline-block; margin-top: 12px; padding: 10px 18px; border-radius: 8px; background: #315efb; color: white; text-decoration: none; font-weight: 600; }
+            #hint { margin-top: 20px; font-size: .9rem; }
+            @media (prefers-color-scheme: dark) { body { background: #111820; color: #eef3f8; } main { background: #1c2733; box-shadow: none; } p { color: #b6c3d0; } }
+          </style>
+        </head>
+        <body>
+          <main>
+            <h1>Открываем Paseo</h1>
+            <p id="status">Пробуем запустить приложение…</p>
+            <p id="countdown" aria-live="polite"></p>
+            <a id="open" href="#">Открыть Paseo</a>
+            <iframe id="launcher" hidden aria-hidden="true"></iframe>
+            <p id="hint">Если приложение уже открылось, вкладка закроется автоматически, если браузер это разрешит. Иначе нажмите кнопку или закройте вкладку вручную.</p>
+          </main>
+          <script>
+            (() => {
+              const status = document.getElementById("status");
+              const link = document.getElementById("open");
+              const launcher = document.getElementById("launcher");
+              const parts = window.location.pathname.split("/");
+              if ((parts.length !== 6 && !(parts.length === 7 && parts[6] === "")) || parts[1] !== "paseo" || parts[2] !== "h" || parts[4] !== "agent" || !parts[3] || !parts[5]) {
+                status.textContent = "Ссылка Paseo выглядит некорректно.";
+                link.hidden = true;
+                return;
+              }
+              let serverId, agentId;
+              try {
+                serverId = decodeURIComponent(parts[3]);
+                agentId = decodeURIComponent(parts[5]);
+              } catch (_) {
+                status.textContent = "Не удалось прочитать параметры ссылки.";
+                link.hidden = true;
+                return;
+              }
+              const target = "paseo://h/" + encodeURIComponent(serverId) + "/agent/" + encodeURIComponent(agentId);
+              link.href = target;
+              const countdown = document.getElementById("countdown");
+              let countdownTimer = null;
+              const startCountdown = () => {
+                if (countdownTimer !== null) return;
+                let remaining = 5;
+                status.textContent = "Открываем Paseo…";
+                const tick = () => {
+                  countdown.textContent = "Попытка закрыть вкладку через " + remaining + " сек.";
+                  if (remaining === 0) {
+                    clearInterval(countdownTimer);
+                    countdownTimer = null;
+                    window.close();
+                    status.textContent = "Если вкладка осталась открытой, закройте её вручную.";
+                    countdown.textContent = "Обратный отсчёт завершён.";
+                    return;
+                  }
+                  remaining -= 1;
+                };
+                tick();
+                countdownTimer = setInterval(tick, 1000);
+              };
+              link.addEventListener("click", (event) => {
+                startCountdown();
+                if (!event.isTrusted) {
+                  event.preventDefault();
+                  launcher.src = target;
+                }
+              });
+              setTimeout(() => {
+                link.click();
+              }, 100);
+            })();
+          </script>
+        </body>
+        </html>
+        HTML
+        cat >/etc/nginx/conf.d/default.conf <<'NGINX'
+        server {
+          listen 80;
+          server_name _;
+          root /usr/share/nginx/html;
+          index index.html;
+          location / {
+            default_type text/html;
+          try_files /index.html =404;
+          }
+        }
+        NGINX
+        exec nginx -g 'daemon off;'
+    networks:
+      - dokploy-network
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      traefik.http.services.paseo-link-handler.loadbalancer.server.port: "80"
+networks:
+  dokploy-network:
+    external: true
